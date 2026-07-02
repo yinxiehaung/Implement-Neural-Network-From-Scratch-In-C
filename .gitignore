@@ -1,0 +1,7 @@
+*.o
+bin/*
+docs/*
+chapters/*
+project/obj/*
+project/mnist/.gdb_history/*
+tests/*
