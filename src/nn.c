@@ -142,7 +142,7 @@ nn_err_t nn_forward_predict(arena_t *arena, const nn_model_t *model,
     matrix_t ping = *x, pong;
     ping = *x;
     for (uint64_t i = 0; i < model->cfg.arch_count - 1; i++) {
-        if (i != model->cfg.arch_count - 1) {
+        if (i != model->cfg.arch_count - 2) {
             MAT_CHECK(mat_init(arena, ping.rows, model->cfg.arch[i + 1], &pong),
                       alloc_err);
         } else {
@@ -175,7 +175,7 @@ static nn_err_t nn_cost(nn_trainer_t *trainer, matrix_t *x, matrix_t *y,
     for (uint64_t i = 0; i < x->rows; i++) {
         NN_CHECK(err_code = nn_forward_train(trainer, x), forward_err);
         for (uint64_t j = 0; j < y->cols; j++) {
-            *result += cost(&trainer->as[trainer->model->cfg.arch_count + 1], y);
+            *result += cost(&trainer->as[trainer->model->cfg.arch_count], y);
         }
     }
     *result = (*result) / x->rows;
