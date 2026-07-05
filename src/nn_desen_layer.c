@@ -131,6 +131,85 @@ static nn_err_t dense_layer_backprop(matrix_t *grad_out, const matrix_t *grad_in
     return NN_OK;
 }
 
+static nn_err_t dense_layer_init_params(nn_layer_t *layer,
+                                        const init_api_t *initializer)
+{
+
+    nn_dense_layer_t *dense = (nn_dense_layer_t *)layer;
+    if (initializer->init_weight != NULL) {
+        initializer->init_weight(&dense->w, dense->w.rows, dense->w.cols);
+    }
+    if (initializer->init_bias != NULL) {
+        initializer->init_bias(&dense->b);
+    }
+    return NN_OK;
+}
+
+static nn_err_t dense_layer_compile(nn_layer_t *layer, arena_t *arena,
+                                    uint64_t batch_size, uint64_t in_dim,
+                                    uint64_t *out_dim, uint64_t *buffer_size)
+{
+    nn_dense_layer_t *dense = (nn_dense_layer_t *)layer;
+    if (in_dim != dense->w.rows) {
+        return NN_ERR_INVALID_ARG;
+    }
+    *out_dim = dense->w.cols;
+    *buffer_size = (in_dim > dense->w.cols) ? in_dim : dense->w.cols;
+    MAT_REQUIRE(mat_init(arena, batch_size, in_dim, &dense->cache_in) == MATRIX_OK,
+                NN_ERR_COMPILE);
+    return NN_OK;
+}
+
+nn_err_t dense_layer_serialize(const nn_layer_t *layer, FILE *fp)
+{
+    nn_dense_layer_t *dense = (nn_dense_layer_t *)layer;
+    fwrite(&dense->w.rows, sizeof(uint64_t), 1, fp);
+    fwrite(&dense->w.cols, sizeof(uint64_t), 1, fp);
+    fwrite(dense->w.data, sizeof(mat_data_t), dense->w.rows * dense->w.cols, fp);
+    fwrite(&dense->b.rows, sizeof(uint64_t), 1, fp);
+    fwrite(&dense->b.cols, sizeof(uint64_t), 1, fp);
+    fwrite(dense->b.data, sizeof(mat_data_t), dense->b.rows * dense->b.cols, fp);
+    return NN_OK;
+}
+
+nn_err_t dense_layer_deserialize(nn_model_t *model, FILE *fp, bool should_load)
+{
+    uint64_t w_rows, w_cols, b_rows, b_cols;
+
+    if (fread(&w_rows, sizeof(uint64_t), 1, fp) != 1)
+        return NN_ERR_IO;
+    if (fread(&w_cols, sizeof(uint64_t), 1, fp) != 1)
+        return NN_ERR_IO;
+    size_t w_size = w_rows * w_cols * sizeof(mat_data_t);
+
+    if (should_load) {
+        nn_model_add_dense(model, w_rows, w_cols);
+        nn_dense_layer_t *d =
+            (nn_dense_layer_t *)model->layers[model->layer_count - 1];
+        if (fread(d->w.data, 1, w_size, fp) != w_size)
+            return NN_ERR_IO;
+    } else {
+        fseek(fp, w_size, SEEK_CUR);
+    }
+
+    if (fread(&b_rows, sizeof(uint64_t), 1, fp) != 1)
+        return NN_ERR_IO;
+    if (fread(&b_cols, sizeof(uint64_t), 1, fp) != 1)
+        return NN_ERR_IO;
+    size_t b_size = b_rows * b_cols * sizeof(mat_data_t);
+
+    if (should_load) {
+        nn_dense_layer_t *d =
+            (nn_dense_layer_t *)model->layers[model->layer_count - 1];
+        if (fread(d->b.data, 1, b_size, fp) != b_size)
+            return NN_ERR_IO;
+    } else {
+        fseek(fp, b_size, SEEK_CUR);
+    }
+
+    return NN_OK;
+}
+
 nn_err_t nn_model_add_dense(nn_model_t *model, uint64_t in_features,
                             uint64_t out_features)
 {
@@ -141,23 +220,28 @@ nn_err_t nn_model_add_dense(nn_model_t *model, uint64_t in_features,
                                    true, (void **)&dense);
     NN_REQUIRE(a_err == ARENA_OK, NN_ERR_INVALID_MODEL);
 
-    dense->base.name = "Dense";
+    dense->base.type_id = LAYER_TYPE_DENSE;
     dense->base.forward = dense_layer_forward;
     dense->base.backprop = dense_layer_backprop;
+    dense->base.deserialize = dense_layer_deserialize;
+    dense->base.serialize = dense_layer_serialize;
+    dense->base.compile = dense_layer_compile;
+    dense->base.init_params = dense_layer_init_params;
     dense->in_dim = in_features;
     dense->out_dim = out_features;
 
     if (mat_init(model->model_arena, in_features, out_features, &dense->w) !=
         MATRIX_OK)
-        return NN_ERR_MATH;
+        return NN_ERR_MAT_INIT;
     if (mat_init(model->model_arena, in_features, out_features, &dense->dw) !=
         MATRIX_OK)
-        return NN_ERR_MATH;
+        return NN_ERR_MAT_INIT;
 
     if (mat_init(model->model_arena, 1, out_features, &dense->b) != MATRIX_OK)
-        return NN_ERR_MATH;
+        return NN_ERR_MAT_INIT;
     if (mat_init(model->model_arena, 1, out_features, &dense->db) != MATRIX_OK)
-        return NN_ERR_MATH;
+        return NN_ERR_MAT_INIT;
+
     dense->cache_in.data = NULL;
     dense->cache_in.rows = 0;
     dense->cache_in.cols = 0;

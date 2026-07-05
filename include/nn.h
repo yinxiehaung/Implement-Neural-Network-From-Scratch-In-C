@@ -2,6 +2,7 @@
 #define NN_H
 #include "matrix.h"
 #include "nn_err_types.h"
+#include "nn_layer_type.h"
 #include "nn_layer.h"
 #include "nn_dense_layer.h"
 #include "nn_dataset.h"
@@ -85,15 +86,20 @@ nn_err_t nn_forward_predict(const nn_model_t *model, const matrix_t *in,
 
 nn_err_t nn_train(nn_model_t *model, nn_trainer_t *trainer, nn_dataset_t *dataset,
                   const cost_api_t *cost);
-nn_err_t nn_model_compile(nn_model_t *model, uint64_t batch_size);
+nn_err_t nn_model_compile(nn_model_t *model, uint64_t batch_size,
+                          uint64_t input_dim);
 nn_err_t nn_model_build_from_desc(nn_model_t *model, const layer_desc_t *arch,
                                   uint64_t arch_count);
 nn_err_t nn_backprop(nn_model_t *model, nn_trainer_t *trainer, matrix_t *y_true,
                      const cost_api_t *cost);
 nn_err_t nn_model_save(const nn_model_t *model, const char *filepath);
 nn_err_t nn_model_load(nn_model_t *model, const char *filepath);
-nn_err_t nn_model_init_params(nn_model_t *model, init_api_t *initializer);
-nn_err_t nn_layer_init_params(nn_layer_t *layer, const init_api_t *init_api);
+nn_err_t nn_model_load_partial(nn_model_t *model, const char *filepath,
+                               uint64_t start_layer, uint64_t end_layer);
+nn_err_t nn_model_split(nn_model_t *source, nn_model_t *part1, nn_model_t *part2,
+                        uint64_t split_idx);
+nn_err_t nn_model_init_params(nn_model_t *model, init_api_t *initializer,
+                              uint64_t init_size);
 void nn_model_layer_print(const nn_layer_t *);
 void nn_model_print(const nn_model_t *);
 void nn_trainer_print(const nn_trainer_t *);

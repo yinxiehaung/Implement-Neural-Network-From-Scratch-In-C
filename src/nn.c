@@ -105,83 +105,50 @@ nn_err_t nn_backprop(nn_model_t *model, nn_trainer_t *trainer, matrix_t *y_true,
     return NN_OK;
 }
 
-nn_err_t nn_model_init_params(nn_model_t *model, init_api_t *initializer)
+nn_err_t nn_model_init_params(nn_model_t *model, init_api_t *initializer,
+                              uint64_t init_size)
 {
     NN_PTR_MODEL_VALID(model);
     NN_PTR_NO_NULL(initializer, NN_ERR_NULL_PTR);
-    for (uint64_t i = 0, j = 0; i < model->layer_count; i++) {
-        if (strcmp(model->layers[i]->name, "Dense") == 0) {
-            nn_layer_init_params(model->layers[i], &initializer[j]);
-            j++;
+    uint64_t params_idx = 0;
+    for (uint64_t i = 0; i < model->layer_count && params_idx < init_size; i++) {
+        nn_layer_t *layer = model->layers[i];
+        if (layer->init_params != NULL) {
+            layer->init_params(layer, &initializer[params_idx]);
+            params_idx++;
         }
     }
     return NN_OK;
 }
 
-nn_err_t nn_layer_init_params(nn_layer_t *layer, const init_api_t *init_api)
-{
-    NN_PTR_NO_NULL(layer, NN_ERR_NULL_PTR);
-    NN_PTR_NO_NULL(init_api, NN_ERR_NULL_PTR);
-    NN_REQUIRE(strcmp(layer->name, "Dense") == 0, NN_ERR_INVALID_ARG);
-    nn_dense_layer_t *dense = (nn_dense_layer_t *)layer;
-    uint64_t fan_in = dense->w.rows;
-    uint64_t fan_out = dense->w.cols;
-
-    if (init_api->init_weight != NULL) {
-        init_api->init_weight(&dense->w, fan_in, fan_out);
-    }
-    if (init_api->init_bias != NULL) {
-        init_api->init_bias(&dense->b);
-    }
-    printf("after:w[0]=%f w[1]=%f w[2]=%f\n", dense->w.data[0], dense->w.data[1],
-           dense->w.data[2]);
-    return NN_OK;
-}
-
-nn_err_t nn_model_compile(nn_model_t *model, uint64_t batch_size)
+nn_err_t nn_model_compile(nn_model_t *model, uint64_t batch_size, uint64_t input_dim)
 {
     NN_PTR_MODEL_VALID(model);
-    NN_REQUIRE(batch_size > 0, NN_ERR_INVALID_ARG);
-
-    uint64_t max_dim = 0;
-    uint64_t current_dim = 0;
-
+    uint64_t current_dim = input_dim;
+    uint64_t max_buffer = 0;
     for (uint64_t i = 0; i < model->layer_count; i++) {
         nn_layer_t *layer = model->layers[i];
-
-        if (strcmp(layer->name, "Dense") == 0) {
-            nn_dense_layer_t *dense = (nn_dense_layer_t *)layer;
-            uint64_t in_features = dense->w.rows;
-            uint64_t out_features = dense->w.cols;
-
-            if (mat_init(model->model_arena, batch_size, in_features,
-                         &dense->cache_in) != MATRIX_OK) {
-                return NN_ERR_MATH;
-            }
-            current_dim = out_features;
-            if (in_features > max_dim)
-                max_dim = in_features;
-            if (out_features > max_dim)
-                max_dim = out_features;
-
-        } else if (strcmp(layer->name, "Activation") == 0) {
-            nn_activation_layer_t *act = (nn_activation_layer_t *)layer;
-
-            if (mat_init(model->model_arena, batch_size, current_dim,
-                         &act->cache_in) != MATRIX_OK) {
-                return NN_ERR_MATH;
-            }
+        uint64_t out_dim = 0;
+        uint64_t buffer_size = 0;
+        if (layer->compile != NULL) {
+            nn_err_t err = layer->compile(layer, model->model_arena, batch_size,
+                                          current_dim, &out_dim, &buffer_size);
+            if (err != NN_OK)
+                return err;
         }
+
+        current_dim = out_dim;
+        if (buffer_size > max_buffer)
+            max_buffer = buffer_size;
+    }
+    if (mat_init(model->model_arena, batch_size, max_buffer, &model->buffer_ping) !=
+        MATRIX_OK) {
+        return NN_ERR_ARENA;
     }
 
-    if (mat_init(model->model_arena, batch_size, max_dim, &model->buffer_ping) !=
+    if (mat_init(model->model_arena, batch_size, max_buffer, &model->buffer_pong) !=
         MATRIX_OK) {
-        return NN_ERR_MATH;
-    }
-
-    if (mat_init(model->model_arena, batch_size, max_dim, &model->buffer_pong) !=
-        MATRIX_OK) {
-        return NN_ERR_MATH;
+        return NN_ERR_ARENA;
     }
 
     return NN_OK;
@@ -208,7 +175,7 @@ void nn_model_print(const nn_model_t *model)
            model->layer_capacity);
     for (uint64_t i = 0; i < model->layer_count; i++) {
         printf("The Layer info: %lu\n-----------------------\n", i);
-        if (strcmp(model->layers[i]->name, "Dense") == 0) {
+        if (model->layers[i]->type_id == LAYER_TYPE_DENSE) {
             const nn_dense_layer_t *dense = (nn_dense_layer_t *)model->layers[i];
             printf(
                 "The Input dim:%lu\nThe Output dim:%lu\n-----------------------\n",

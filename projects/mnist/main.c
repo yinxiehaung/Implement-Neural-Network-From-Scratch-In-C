@@ -138,7 +138,7 @@ int infer(void)
         arena_free(&arena);
         return 1;
     }
-    nn_model_compile(&model, 1);
+    nn_model_compile(&model, 1, 784);
     nn_dataset_t test_dataset;
     mnist_load_images(&arena, "test-images-idx3-ubyte/t10k-images.idx3-ubyte",
                       &test_dataset.X);
@@ -225,8 +225,8 @@ int train(void)
                             .learning_rate = 0.1f,
                             .batch_size = 128,
                             .max_epochs = 30};
-    nn_model_compile(&model, trainer.batch_size);
-    nn_model_init_params(&model, apis);
+    nn_model_compile(&model, trainer.batch_size, 784);
+    nn_model_init_params(&model, apis, 2);
     nn_model_print(&model);
     printf("Starting training...\n");
     if (nn_train(&model, &trainer, &train_dataset, &COST_CROSS_ENTROPY) != NN_OK) {

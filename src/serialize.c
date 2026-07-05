@@ -1,8 +1,10 @@
-#include <stdio.h>
 #include <string.h>
 #include "../include/nn.h"
-#include "../include/nn_dense_layer.h"
-#include "../include/nn_activation_layer.h"
+
+static layer_deserialize_fn layer_registry[MAX_LAYER_TYPES] = {
+    [LAYER_TYPE_DENSE] = dense_layer_deserialize,
+    [LAYER_TYPE_ACTIVATION] = act_layer_deserialize,
+};
 
 nn_err_t nn_model_save(const nn_model_t *model, const char *filepath)
 {
@@ -19,148 +21,96 @@ nn_err_t nn_model_save(const nn_model_t *model, const char *filepath)
 
     for (uint64_t i = 0; i < model->layer_count; i++) {
         nn_layer_t *layer = model->layers[i];
-        uint32_t layer_type = 0;
-
-        if (strcmp(layer->name, "Dense") == 0) {
-            layer_type = 1;
-            if (fwrite(&layer_type, sizeof(uint32_t), 1, fp) != 1) {
+        if (fwrite(&layer->type_id, sizeof(uint32_t), 1, fp) != 1) {
+            fclose(fp);
+            return NN_ERR_IO;
+        }
+        if (layer->serialize != NULL) {
+            nn_err_t err = layer->serialize(layer, fp);
+            if (err != NN_OK) {
                 fclose(fp);
-                return NN_ERR_IO;
-            }
-
-            nn_dense_layer_t *dense = (nn_dense_layer_t *)layer;
-
-            fwrite(&dense->w.rows, sizeof(uint64_t), 1, fp);
-            fwrite(&dense->w.cols, sizeof(uint64_t), 1, fp);
-            if (fwrite(dense->w.data, sizeof(mat_data_t),
-                       dense->w.rows * dense->w.cols,
-                       fp) != (size_t)(dense->w.rows * dense->w.cols)) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-
-            fwrite(&dense->b.rows, sizeof(uint64_t), 1, fp);
-            fwrite(&dense->b.cols, sizeof(uint64_t), 1, fp);
-            if (fwrite(dense->b.data, sizeof(mat_data_t),
-                       dense->b.rows * dense->b.cols,
-                       fp) != (size_t)(dense->b.rows * dense->b.cols)) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-        } else if (strcmp(layer->name, "Activation") == 0) {
-            layer_type = 2;
-            if (fwrite(&layer_type, sizeof(uint32_t), 1, fp) != 1) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-
-            nn_activation_layer_t *act = (nn_activation_layer_t *)layer;
-            uint32_t act_type = 0;
-            if (act->api == &ACT_RELU)
-                act_type = 1;
-            else if (act->api == &ACT_SIGMOID)
-                act_type = 2;
-            else if (act->api == &ACT_SOFTMAX)
-                act_type = 3;
-            else if (act->api == &ACT_LINEAR)
-                act_type = 4;
-
-            if (fwrite(&act_type, sizeof(uint32_t), 1, fp) != 1) {
-                fclose(fp);
-                return NN_ERR_IO;
+                return err;
             }
         }
     }
-
     fclose(fp);
     return NN_OK;
 }
 
 nn_err_t nn_model_load(nn_model_t *model, const char *filepath)
 {
-    NN_PTR_NO_NULL(model, NN_ERR_NULL_PTR);
-    NN_PTR_NO_NULL(filepath, NN_ERR_NULL_PTR);
-
     FILE *fp = fopen(filepath, "rb");
     NN_REQUIRE(fp != NULL, NN_ERR_IO);
 
-    uint64_t incoming_layer_count = 0;
-    if (fread(&incoming_layer_count, sizeof(uint64_t), 1, fp) != 1) {
+    uint64_t total_layers;
+    if (fread(&total_layers, sizeof(uint64_t), 1, fp) != 1) {
         fclose(fp);
         return NN_ERR_IO;
     }
 
-    NN_REQUIRE(incoming_layer_count <= model->layer_capacity, NN_ERR_INVALID_MODEL);
-
-    const act_api_t *api = NULL;
-    for (uint64_t i = 0; i < incoming_layer_count; i++) {
-        uint32_t layer_type = 0;
-        if (fread(&layer_type, sizeof(uint32_t), 1, fp) != 1) {
+    for (uint64_t i = 0; i < total_layers; i++) {
+        layer_type_t type_id;
+        if (fread(&type_id, sizeof(uint32_t), 1, fp) != 1) {
             fclose(fp);
             return NN_ERR_IO;
         }
-
-        if (layer_type == 1) {
-            uint64_t w_rows = 0, w_cols = 0;
-            if (fread(&w_rows, sizeof(uint64_t), 1, fp) != 1 ||
-                fread(&w_cols, sizeof(uint64_t), 1, fp) != 1) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-
-            nn_err_t err = nn_model_add_dense(model, w_rows, w_cols);
+        if (type_id < LAYER_TYPE_COUNT && layer_registry[type_id] != NULL) {
+            nn_err_t err = layer_registry[type_id](model, fp, true);
             if (err != NN_OK) {
                 fclose(fp);
                 return err;
             }
-
-            nn_dense_layer_t *dense =
-                (nn_dense_layer_t *)model->layers[model->layer_count - 1];
-            if (fread(dense->w.data, sizeof(mat_data_t), w_rows * w_cols, fp) !=
-                (size_t)(w_rows * w_cols)) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-
-            uint64_t b_rows = 0, b_cols = 0;
-            if (fread(&b_rows, sizeof(uint64_t), 1, fp) != 1 ||
-                fread(&b_cols, sizeof(uint64_t), 1, fp) != 1) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-
-            if (fread(dense->b.data, sizeof(mat_data_t), b_rows * b_cols, fp) !=
-                (size_t)(b_rows * b_cols)) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-        } else if (layer_type == 2) {
-            uint32_t act_type = 0;
-            if (fread(&act_type, sizeof(uint32_t), 1, fp) != 1) {
-                fclose(fp);
-                return NN_ERR_IO;
-            }
-            if (act_type == 1)
-                api = &ACT_RELU;
-            else if (act_type == 2)
-                api = &ACT_SIGMOID;
-            else if (act_type == 3)
-                api = &ACT_SOFTMAX;
-            else if (act_type == 4)
-                api = &ACT_LINEAR;
-            else {
-                fclose(fp);
-                return NN_ERR_INVALID_MODEL;
-            }
-
-            nn_err_t err = nn_model_add_activation(model, api);
-            if (err != NN_OK) {
-                fclose(fp);
-                return err;
-            }
+        } else {
+            fclose(fp);
+            return NN_ERR_INVALID_MODEL;
         }
     }
 
     fclose(fp);
+    return NN_OK;
+}
+nn_err_t nn_model_load_partial(nn_model_t *model, const char *filepath,
+                               uint64_t start_layer, uint64_t end_layer)
+{
+    FILE *fp = fopen(filepath, "rb");
+    NN_REQUIRE(fp != NULL, NN_ERR_IO);
+
+    uint64_t total_layers;
+    fread(&total_layers, sizeof(uint64_t), 1, fp);
+
+    for (uint64_t i = 0; i < total_layers; i++) {
+        uint32_t type_id;
+        fread(&type_id, sizeof(uint32_t), 1, fp);
+        bool should_load = (i >= start_layer && i <= end_layer);
+        if (layer_registry[type_id] != NULL) {
+            nn_err_t err = layer_registry[type_id](model, fp, should_load);
+            if (err != NN_OK) {
+                fclose(fp);
+                return err;
+            }
+        } else {
+            fclose(fp);
+            return NN_ERR_INVALID_MODEL;
+        }
+    }
+    fclose(fp);
+    return NN_OK;
+}
+
+nn_err_t nn_model_split(nn_model_t *source, nn_model_t *part1, nn_model_t *part2,
+                        uint64_t split_idx)
+{
+    NN_PTR_NO_NULL(part1, NN_ERR_NULL_PTR);
+    NN_PTR_NO_NULL(part2, NN_ERR_NULL_PTR);
+    NN_REQUIRE(source->layer_count > split_idx, NN_ERR_INVALID_ARG);
+    nn_model_init(part1, source->model_arena, split_idx);
+    nn_model_init(part2, source->model_arena, source->layer_count - split_idx);
+    for (uint32_t i = 0; i < split_idx; i++) {
+        part1->layers[part1->layer_count++] = source->layers[i];
+    }
+
+    for (uint32_t i = split_idx; i < source->layer_count; i++) {
+        part2->layers[part2->layer_count++] = source->layers[i];
+    }
     return NN_OK;
 }

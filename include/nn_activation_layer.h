@@ -13,4 +13,6 @@ typedef struct {
 } nn_activation_layer_t;
 
 nn_err_t nn_model_add_activation(nn_model_t *model, const act_api_t *api);
+nn_err_t act_layer_serialize(const nn_layer_t *layer, FILE *fp);
+nn_err_t act_layer_deserialize(nn_model_t *model, FILE *fp, bool should_load);
 #endif

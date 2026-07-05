@@ -17,6 +17,9 @@ typedef enum {
     NN_ERR_IO = -13,
     NN_ERR_MATH = -14,
     NN_ERR_MODEL_FULL = -15,
-    NN_ERR_TRAIN_FAILED = -16
+    NN_ERR_TRAIN_FAILED = -16,
+    NN_ERR_COMPILE = -17,
+    NN_ERR_LAYER_ADD = -18,
+    NN_ERR_MAT_INIT = -19
 } nn_err_t;
 #endif

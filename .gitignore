@@ -3,5 +3,5 @@ bin/*
 docs/*
 chapters/*
 project/obj/*
-project/mnist/.gdb_history/*
+.gdb_history
 tests/*

@@ -8,7 +8,7 @@ nn_err_t nn_trainer_step(nn_model_t *model, const nn_trainer_t *trainer)
     for (uint64_t i = 0; i < model->layer_count; i++) {
         nn_layer_t *layer = model->layers[i];
         mat_data_t lr = trainer->learning_rate;
-        if (strcmp(layer->name, "Dense") == 0) {
+        if (layer->type_id == LAYER_TYPE_DENSE) {
             nn_dense_layer_t *dense = (nn_dense_layer_t *)layer;
             MAT_CHECK(mat_scale_add(&dense->w, &dense->w, &dense->dw, -lr), op_err);
             MAT_CHECK(mat_scale_add(&dense->b, &dense->b, &dense->db, -lr), op_err);
@@ -47,7 +47,7 @@ nn_err_t nn_train(nn_model_t *model, nn_trainer_t *trainer, nn_dataset_t *datase
                 epoch_loss += cost->cost(y_pred, &y_batch);
             }
             for (uint64_t i = 0; i < model->layer_count; i++) {
-                if (strcmp(model->layers[i]->name, "Dense") == 0) {
+                if (model->layers[i]->type_id == LAYER_TYPE_DENSE) {
                     nn_dense_layer_t *dense = (nn_dense_layer_t *)model->layers[i];
                     memset(dense->dw.data, 0,
                            sizeof(mat_data_t) * dense->dw.rows * dense->dw.cols);

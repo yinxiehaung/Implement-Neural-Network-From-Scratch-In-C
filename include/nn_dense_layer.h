@@ -19,4 +19,6 @@ struct nn_dense_layer_s {
 };
 
 nn_err_t nn_model_add_dense(nn_model_t *model, uint64_t rows, uint64_t cols);
+nn_err_t dense_layer_serialize(const nn_layer_t *layer, FILE *fp);
+nn_err_t dense_layer_deserialize(nn_model_t *model, FILE *fp, bool should_load);
 #endif
