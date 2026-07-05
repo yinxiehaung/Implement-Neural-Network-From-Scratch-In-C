@@ -54,7 +54,7 @@ int main() {
 ### 2. Architectural Extensibility: Distributed Inference
 Because of the polymorphic API, you can implement custom layers to achieve split inference. As demonstrated in the project/splitnn_mnist example directory, you can inject TCP socket layers directly into the computation graph:
 
-Client-Side (Edge Device):
+#### Client-Side (Edge Device):
 
 ```c
 #include "nn.h"
@@ -74,6 +74,35 @@ int main() {
     // Engine executes Layer 0, Layer 1, and routes data through the Emitter
     nn_forward_predict(&model, &input_image, &dummy_out);
 
+    return 0;
+}
+```
+
+#### Server-Side (Compute Node)
+
+```c
+#include "nn.h"
+#include "net_layer.h"
+
+int main() {
+    arena_t arena;
+    arena_init(&arena, MiB(100));
+    
+    nn_model_t model;
+    nn_model_init(&model, &arena, 10);
+
+    // Abstract the network socket as the input layer
+    nn_model_add_receiver(&model, client_sockfd);
+    
+    // Load classifier layers (e.g., Layer 2 to 3)
+    nn_model_load_partial(&model, "model.bin", 2, 3);
+    
+    // Compile expecting the intermediate feature dimension (e.g., 128)
+    nn_model_compile(&model, 1, 128);
+
+    // Engine blocks until network features arrive, then completes inference
+    nn_forward_predict(&model, &dummy_in, &final_prediction);
+    
     return 0;
 }
 ```
