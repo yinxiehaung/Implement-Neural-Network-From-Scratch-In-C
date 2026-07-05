@@ -143,8 +143,6 @@ nn_err_t nn_model_add_my_layer(nn_model_t *model, int my_param)
 {
     my_layer_t *layer;
     arena_push(model->model_arena, sizeof(my_layer_t), true, (void **)&layer);
-
-    layer->base.name       = "MyLayer";
     layer->base.type_id    = LAYER_TYPE_MY_LAYER;
     layer->base.forward    = my_layer_forward;
     layer->base.compile    = my_layer_compile;
